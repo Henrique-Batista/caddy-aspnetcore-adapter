@@ -1,60 +1,154 @@
-DEVELOPER INSTRUCTIONS:
-=======================
+# aspnetadapter
 
-- Update module name in go.mod
-- Update dependencies to latest versions (**EXCEPT `caddy/v2` ITSELF**)
-- Update name and year in license
-- Customize configuration and Caddyfile parsing
-- Update godocs / comments (especially provider name and nuances)
-- Update README and remove this section
+Módulo para o Caddy Server que adiciona compatibilidade com aplicações ASP.NET e ASP.NET Core. Este módulo oferece:
 
-Thank you for maintaining your Caddy plugin!
+* **Adapter de web.config** para importar regras de rewrite, redirect e documentos padrões;
+* **Middleware de compatibilidade** para tratar extensões como `.aspx`, `.ashx`, `.axd`, etc.;
+* **Gerenciador de processo** para iniciar o runtime do ASP.NET Core automaticamente sem modificar o `web.config`;
+* **Integração com reverse\_proxy** para roteamento de requisições ao backend ASP.NET Core.
 
-_Remove this section before publishing._
+## Recursos Suportados
+
+* Rewrite rules (`<rewrite>`)
+* Redirecionamentos (`<httpRedirect>`)
+* Documentos padrões (`<defaultDocument>`)
+* Início automático de processos `.NET` com argumentos personalizados
+
+## Requisitos
+
+* Go 1.20 ou superior
+* Caddy v2.7.0 ou superior
+* Runtime do .NET instalado no sistema (`dotnet`)
 
 ---
 
-\<PROVIDER\> module for Caddy
-===========================
+## Instalação
 
-This package contains a DNS provider module for [Caddy](https://github.com/caddyserver/caddy). It can be used to manage DNS records with \<PROVIDER\>.
+Você pode compilar o módulo com `xcaddy`:
 
-## Caddy module name
-
-```
-dns.providers.provider_name
+```bash
+xcaddy build --with github.com/seuusuario/aspnetadapter
 ```
 
-## Config examples
+---
 
-To use this module for the ACME DNS challenge, [configure the ACME issuer in your Caddy JSON](https://caddyserver.com/docs/json/apps/tls/automation/policies/issuer/acme/) like so:
+## Uso Básico
 
-```json
+### Adaptar `web.config`
+
+Se quiser converter `web.config` para um `Caddyfile`, use:
+
+```bash
+caddy adapt --config web.config --adapter webconfig
+```
+
+Isso gerará um Caddyfile contendo diretivas `rewrite`, `redir`, `try_files` e `file_server` equivalentes.
+
+---
+
+### Iniciar ASP.NET Core + Caddy
+
+Você pode usar `process_manager` diretamente no `Caddyfile`:
+
+```caddyfile
 {
-	"module": "acme",
-	"challenges": {
-		"dns": {
-			"provider": {
-				"name": "provider_name",
-				"api_token": "YOUR_PROVIDER_API_TOKEN"
-			}
-		}
-	}
+  order middleware.aspnet_compat before file_server
+}
+
+:8080 {
+  process_manager {
+    process_path "dotnet"
+    process_args "MyApp.dll --urls http://127.0.0.1:5000"
+    restart_delay 5s
+  }
+
+  route {
+    middleware.aspnet_compat
+    reverse_proxy 127.0.0.1:5000
+    file_server
+  }
 }
 ```
 
-or with the Caddyfile:
+Ou iniciar manualmente via linha de comando:
 
+```bash
+caddy run \
+  --process_path "/usr/bin/dotnet" \
+  --process_args "MyApp.dll --urls http://127.0.0.1:5000" \
+  --restart_delay 5s
 ```
-# globally
-{
-	acme_dns provider_name ...
+
+---
+
+## Exemplo Completo
+
+### web.config
+
+```xml
+<configuration>
+  <system.webServer>
+    <rewrite>
+      <rules>
+        <rule name="CleanUrls">
+          <match url="^([_0-9a-z-]+)$" />
+          <action type="Rewrite" url="/{R:1}.html" />
+        </rule>
+      </rules>
+    </rewrite>
+    <httpRedirect enabled="true" destination="https://example.com/" />
+    <defaultDocument>
+      <files>
+        <add value="index.html" />
+        <add value="default.html" />
+      </files>
+    </defaultDocument>
+  </system.webServer>
+</configuration>
+```
+
+### Adaptando para Caddy
+
+```bash
+caddy adapt --config web.config --adapter webconfig
+```
+
+---
+
+## Testes
+
+Inclua testes para:
+
+* Parsing de `web.config`
+* Execução controlada do processo
+* Middleware de compatibilidade
+
+Exemplo de teste simples:
+
+```go
+func TestStartProcess(t *testing.T) {
+  cfg := Config{
+    ProcessPath: "sleep",
+    Arguments:   "1",
+    RestartDelay: 1 * time.Second,
+  }
+  ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+  defer cancel()
+  err := StartProcess(ctx, cfg)
+  if err != nil {
+    t.Fatal(err)
+  }
 }
 ```
 
-```
-# one site
-tls {
-	dns provider_name ...
-}
-```
+---
+
+## Licença
+
+MIT
+
+---
+
+## Contribuindo
+
+Pull requests e sugestões são bem-vindos! Abra uma issue se quiser propor uma nova funcionalidade ou relatar bugs.
