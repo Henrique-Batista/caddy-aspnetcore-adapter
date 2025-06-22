@@ -1,0 +1,11 @@
+{
+  order webconfig before file_server
+}
+
+:8080 {
+  webconfig
+  route {
+    middleware.aspnet_compat
+    file_server
+  }
+}
